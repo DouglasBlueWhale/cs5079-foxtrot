@@ -1,1 +1,6 @@
 streamlit
+torch
+pandas
+numpy
+scikit-learn
+pickle-mixin
