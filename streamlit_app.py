@@ -4,6 +4,8 @@ import pandas as pd
 from model import WideAndDeepModel 
 import pickle
 from model import get_user_recommendations
+from dash import html, dcc
+
 
 # Fix file paths
 MODEL_PATH = "music_recommender.pth"
@@ -105,67 +107,118 @@ def get_user_recommendations(model, user_id, song_df, listened_songs, top_k=5):
 def main():
     st.title("🎵 Music Recommendation System")
     
-    # Load data and model
-    model, song_df, le_dict = load_model_and_data()
+    #       
+    col1, col2 = st.columns(2)
     
-    if model is None or song_df is None or le_dict is None:
-        st.error("System initialization failed. Please ensure all required files exist.")
-        st.stop()
+    with col1:
+        st.subheader("recommendation based on song")
+        # load data and model
+        model, song_df, le_dict = load_model_and_data()
+        
+        if model is None or song_df is None or le_dict is None:
+            st.error("system initialization failed. Please ensure all required files exist.")
+            st.stop()
+        
+        # create song selector
+        unique_songs = song_df[['title', 'artist_name']].drop_duplicates()
+        song_options = [f"{row['title']} - {row['artist_name']}" 
+                       for _, row in unique_songs.iterrows()]
+        
+        selected_songs = st.multiselect(
+            "select the songs you have listened to:",
+            options=song_options,
+            max_selections=10
+        )
+        
+        if st.button("get recommendation based on song"):
+            if selected_songs:
+                with st.spinner("generating recommendation..."):
+                    # get song_ids of selected songs
+                    listened_songs = []
+                    for song in selected_songs:
+                        title = song.split(" - ")[0]
+                        artist = song.split(" - ")[1]
+                        song_id = song_df[(song_df['title'] == title) & 
+                                        (song_df['artist_name'] == artist)]['song'].iloc[0]
+                        listened_songs.append(song_id)
+                    
+                                # use model to generate recommendation
+                    recommended_songs, scores = get_user_recommendations(
+                        model, 
+                        user_id=0,  # new user default ID
+                        song_df=song_df,
+                        listened_songs=listened_songs,
+                        top_k=5  # recommend 5 songs
+                    )
+                    
+                    st.success("recommendation generated successfully!")
+                    
+                    # display recommendation results
+                    st.subheader("recommendation songs:")
+                    for song_id, score in zip(recommended_songs, scores):
+                        song_info = song_df[song_df['song'] == song_id].iloc[0]
+                        with st.expander(f"🎵 {song_info['title']} - {song_info['artist_name']}"):
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.write(f"artist: {song_info['artist_name']}")
+                                st.write(f"album: {song_info['release']}")
+                            with col2:
+                                st.write(f"year: {song_info['year']}")
+                                st.write(f"match score: {score:.2f}")
+            else:
+                st.warning("please select at least one song!")
     
-    # Create song selector
-    unique_songs = song_df[['title', 'artist_name']].drop_duplicates()
-    song_options = [f"{row['title']} - {row['artist_name']}" 
-                   for _, row in unique_songs.iterrows()]
-    
-    selected_songs = st.multiselect(
-        "Select songs you've listened to:",
-        options=song_options,
-        max_selections=10
-    )
-    
-    if st.button("Get Recommendations"):
-        if selected_songs:
-            with st.spinner("Generating recommendations..."):
-                # Get song_ids for selected songs
-                listened_songs = []
-                for song in selected_songs:
-                    title = song.split(" - ")[0]
-                    artist = song.split(" - ")[1]
-                    song_id = song_df[(song_df['title'] == title) & 
-                                    (song_df['artist_name'] == artist)]['song'].iloc[0]
-                    listened_songs.append(song_id)
-                
-                # Generate recommendations using the model
-                recommended_songs, scores = get_user_recommendations(
-                    model, 
-                    user_id=0,  # Default ID for new users
-                    song_df=song_df,
-                    listened_songs=listened_songs,
-                    top_k=5  # Recommend 5 songs
-                )
-                
-                st.success("Recommendations generated!")
-                
-                # Display recommendations
-                st.subheader("Recommended Songs:")
-                for song_id, score in zip(recommended_songs, scores):
-                    song_info = song_df[song_df['song'] == song_id].iloc[0]
-                    with st.expander(f"🎵 {song_info['title']} - {song_info['artist_name']}"):
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.write(f"Artist: {song_info['artist_name']}")
-                            st.write(f"Album: {song_info['release']}")
-                        with col2:
-                            st.write(f"Year: {song_info['year']}")
-                            st.write(f"Match Score: {score:.2f}")
-        else:
-            st.warning("Please select at least one song!")
-    
+    with col2:
+        st.subheader("recommendation based on user")
+        # get all unique users
+        unique_users = song_df['user'].unique()
+        
+        # create user selector
+        selected_user = st.selectbox(
+            " select a user:",
+            options=unique_users,
+            format_func=lambda x: f"user {x[:8]}..."  # only display the first 8 characters of user ID
+        )
+        
+        if st.button("get recommendation based on user"):
+            if selected_user:
+                with st.spinner("generating recommendation..."):
+                    # get songs listened by the user
+                    user_songs = song_df[song_df['user'] == selected_user]['song'].unique()
+                    
+                    # use model to generate recommendation
+                    recommended_songs, scores = get_user_recommendations(
+                        model,
+                        user_id=0,  # here we can use the actual user ID mapping
+                        song_df=song_df,
+                        listened_songs=user_songs.tolist(),
+                        top_k=5
+                    )
+                    
+                    st.success("recommendation generated successfully!")
+                    
+                    st.write(f"the user has listened to {len(user_songs)} songs")
+                    
+
+                    st.subheader("recommendation songs:")
+                    for song_id, score in zip(recommended_songs, scores):
+                        song_info = song_df[song_df['song'] == song_id].iloc[0]
+                        with st.expander(f"🎵 {song_info['title']} - {song_info['artist_name']}"):
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.write(f"artist: {song_info['artist_name']}")
+                                st.write(f"album: {song_info['release']}")
+                            with col2:
+                                st.write(f"year: {song_info['year']}")
+                                st.write(f"match score: {score:.2f}")
+            else:
+                st.warning("please select a user!")
+
     st.markdown("---")
     st.markdown(
         """
         <div style='text-align: center'>
-            <p>Music Recommendation System | Based on Wide & Deep Model</p>
+            <p>music recommendation system | based on Wide & Deep model</p>
         </div>
         """,
         unsafe_allow_html=True
@@ -173,4 +226,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
